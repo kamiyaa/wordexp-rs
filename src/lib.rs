@@ -1,6 +1,8 @@
 extern crate libc;
 
 mod ll;
+#[cfg(test)]
+mod test;
 
 use std::ffi::{CStr, CString};
 
@@ -39,7 +41,7 @@ impl<'a> ToCStr for &'a str {
 }
 
 /// Errors types for WordexpError
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum WordexpErrorType {
     /// Illegal occurrence of newline or one of |, &, ;, <, >, (, ), {, }.
     BadChar,
@@ -90,36 +92,65 @@ impl std::fmt::Display for WordexpError {
 impl std::error::Error for WordexpError {}
 
 /// Wrapper for C struct: wordexp_t
-pub struct Wordexp<'a> {
+pub struct Wordexp {
     pub we_offs: usize,
-    pub we_wordv: Vec<Option<&'a str>>,
+    pub we_wordc: usize,
     // for memory deallocation
     pub wordexp_ref: Option<ll::wordexp_t>,
-    // for iterator
-    counter: usize,
 }
 
-impl<'a> Wordexp<'a> {
+impl Wordexp {
     /// Creates an empty Wordexp struct to be used with wordexp()
     pub fn new(we_offs: usize) -> Self {
         Wordexp {
             we_offs,
-            we_wordv: Vec::default(),
+            we_wordc: usize::default(),
             wordexp_ref: None,
-            counter: usize::default(),
         }
     }
 
     pub fn update(&mut self) {
         if let Some(wordexp_ref) = self.wordexp_ref.as_mut() {
-            let we_wordc: usize = wordexp_ref.we_wordc as usize;
             let we_offs: usize = wordexp_ref.we_offs as usize;
-            let we_wordv: Vec<Option<&str>> = unsafe {
-                let ptr: *const *const libc::c_char = wordexp_ref.we_wordv;
+            let we_wordc: usize = wordexp_ref.we_wordc as usize;
 
-                (0..we_wordc)
-                    .map(|i| {
-                        let nptr = ptr.add(i);
+            self.we_offs = we_offs;
+            self.we_wordc = we_wordc;
+        }
+    }
+
+    pub fn iter(&self) -> WordexpIterator {
+        WordexpIterator::new(&self)
+    }
+}
+
+pub struct WordexpIterator<'a> {
+    wordexp_ref: &'a Wordexp,
+    index: usize,
+}
+
+impl<'a> WordexpIterator<'a> {
+    pub fn new(wordexp_ref: &'a Wordexp) -> Self {
+        WordexpIterator {
+            wordexp_ref,
+            index: 0,
+        }
+    }
+}
+
+impl<'a> std::iter::Iterator for WordexpIterator<'a> {
+    type Item = &'a str;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.wordexp_ref.we_wordc + self.wordexp_ref.we_offs {
+            None
+        } else {
+            match self.wordexp_ref.wordexp_ref.as_ref() {
+                Some(s) => {
+                    let item = unsafe {
+                        let ptr: *const *const libc::c_char = s.we_wordv;
+                        let nptr = ptr.add(self.index);
                         if nptr == std::ptr::null() {
                             None
                         } else {
@@ -130,36 +161,21 @@ impl<'a> Wordexp<'a> {
                                 None
                             }
                         }
-                    })
-                    .collect()
-            };
-            self.we_wordv = we_wordv;
-            self.we_offs = we_offs;
-        }
-    }
-}
-
-impl<'a> std::iter::Iterator for Wordexp<'a> {
-    type Item = &'a str;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.counter >= self.we_wordv.len() {
-            self.counter = 0;
-            None
-        } else {
-            let item = self.we_wordv[self.counter];
-            self.counter += 1;
-            item
+                    };
+                    self.index += 1;
+                    item
+                },
+                None => None,
+            }
         }
     }
 }
 
 /// Should works exactly like how wordexp() works in C
-pub fn wordexp<'a>(s: &str, mut p: Wordexp<'a>, flags: i32) -> Result<Wordexp<'a>, WordexpError> {
+pub fn wordexp(s: &str, mut p: Wordexp, flags: i32) -> Result<Wordexp, WordexpError> {
     if p.wordexp_ref.is_none() {
         let wordexp_c = ll::wordexp_t {
-            we_wordc: 0,
+            we_wordc: p.we_wordc,
             we_wordv: std::ptr::null(),
             we_offs: p.we_offs,
         };
@@ -181,28 +197,4 @@ pub fn wordexp<'a>(s: &str, mut p: Wordexp<'a>, flags: i32) -> Result<Wordexp<'a
         }
     };
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{wordexp, Wordexp};
-    #[test]
-    fn it_works() {
-        std::env::set_var("HOME", "/home/wordexp");
-        let s = "~/";
-        let p = Wordexp::new(0);
-        let flags = 0;
-
-        match wordexp(s, p, flags) {
-            Ok(s) => {
-                assert_eq!(0, s.we_offs);
-                assert_eq!(1, s.we_wordv.len());
-                match s.we_wordv[0] {
-                    None => assert!(false),
-                    Some(s) => assert_eq!("/home/wordexp/", s),
-                }
-            }
-            Err(_) => assert!(false),
-        }
-    }
 }
