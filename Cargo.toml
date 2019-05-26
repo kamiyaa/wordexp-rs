@@ -1,0 +1,9 @@
+[package]
+name = "wordexp"
+version = "0.1.0"
+authors = ["Jiayi Zhao <jeff.no.zhao@gmail.com>"]
+homepage = "https://github.com/kamiyaa/wordexp-rs"
+edition = "2018"
+
+[dependencies]
+libc = "^0.2"
