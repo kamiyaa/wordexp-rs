@@ -3,6 +3,8 @@ name = "wordexp"
 version = "0.1.0"
 authors = ["Jiayi Zhao <jeff.no.zhao@gmail.com>"]
 homepage = "https://github.com/kamiyaa/wordexp-rs"
+description = "Rust wrapper around wordexp c library"
+license = "BSD-3-Clause"
 edition = "2018"
 
 [dependencies]
